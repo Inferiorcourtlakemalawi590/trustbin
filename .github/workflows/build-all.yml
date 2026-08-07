@@ -113,8 +113,17 @@ jobs:
       ref: "59f66583474fb0297b7447551460e1072de324c0"
       skip_release: true
 
+  mimikatz:
+    needs: wave2_gate
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/build-mimikatz.yml
+    with:
+      ref: "306bc6b43099c7b698f2898401fddbded6a630c8"
+      skip_release: true
+
   wave3_gate:
-    needs: [certify, rubeus, seatbelt, sharpup, sharpersist, godpotato]
+    needs:
+      [certify, rubeus, seatbelt, sharpup, sharpersist, godpotato, mimikatz]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -183,6 +192,7 @@ jobs:
         sharpup,
         sharpersist,
         godpotato,
+        mimikatz,
         inveigh,
         mailsniper,
         powerlurk,
@@ -225,6 +235,7 @@ jobs:
               "sharpup": {"result": "${{ needs.sharpup.result }}", "ref": "8a7579174ed447181835cb82bf2ec0279e9110d0", "repo": "GhostPack/SharpUp"},
               "sharpersist": {"result": "${{ needs.sharpersist.result }}", "ref": "01fb8bb22cdea29f6d0dce2fd28698f4edfffdb9", "repo": "mandiant/SharPersist"},
               "godpotato": {"result": "${{ needs.godpotato.result }}", "ref": "59f66583474fb0297b7447551460e1072de324c0", "repo": "BeichenDream/GodPotato"},
+              "mimikatz": {"result": "${{ needs.mimikatz.result }}", "ref": "306bc6b43099c7b698f2898401fddbded6a630c8", "repo": "gentilkiwi/mimikatz"},
               "inveigh": {"result": "${{ needs.inveigh.result }}", "ref": "7aea2e7213c9e89ad13fb132d048cf589c6a03f7", "repo": "Kevin-Robertson/Inveigh"},
               "mailsniper": {"result": "${{ needs.mailsniper.result }}", "ref": "1d5563697105e81faa5825d588362f67549db60a", "repo": "dafthack/MailSniper"},
               "powerlurk": {"result": "${{ needs.powerlurk.result }}", "ref": "ddfa8fb02ddbc19469fdc5314fd764d0a801fbce", "repo": "Sw4mpf0x/PowerLurk"},
