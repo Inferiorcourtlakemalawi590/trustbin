@@ -1,0 +1,147 @@
+name: build-sharpersist
+
+# Compiles SharPersist from the pinned official source ref (see
+# tools/sharpersist/source.md) for Windows, and publishes the binary
+# as a signed + attested GitHub Release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git commit/tag of mandiant/SharPersist to build"
+        required: true
+        default: "01fb8bb22cdea29f6d0dce2fd28698f4edfffdb9"
+      skip_release:
+        description: "Skip this tool's own release publish - build-all sets this and publishes once at the end instead"
+        type: boolean
+        default: false
+  # Lets build-all.yml (or any other workflow) call this one directly.
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+        default: "01fb8bb22cdea29f6d0dce2fd28698f4edfffdb9"
+      skip_release:
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+env:
+  UPSTREAM_REPO: mandiant/SharPersist
+  TOOL_NAME: sharpersist
+  SLN_PATH: src/SharPersist.sln
+  PROJECT_DIR: src/SharPersist
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Clone upstream source at pinned ref
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ inputs.ref }}
+          path: src
+
+      - name: Record exact commit built
+        shell: bash
+        run: echo "UPSTREAM_COMMIT=$(git -C src rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Set up NuGet
+        uses: nuget/setup-nuget@v2
+
+      # Upstream doesn't ship a packages.config (nowhere in the repo at
+      # this ref), so `nuget restore` on the .sln finds nothing to do,
+      # even though SharPersist.csproj references two packages by
+      # HintPath (..\packages\<pkg>.<version>\lib\net40\...): Costura.Fody
+      # and TaskScheduler. Install them explicitly into that exact layout.
+      - name: Restore NuGet packages
+        working-directory: src
+        run: |
+          nuget install Costura.Fody -Version 3.3.3 -OutputDirectory packages
+          nuget install TaskScheduler -Version 2.8.11 -OutputDirectory packages
+
+      # Upstream's csproj targets .NETFramework v4.0, but windows-latest
+      # runners only ship reference/targeting packs for 4.5+ (4.0 was
+      # superseded in-place by those, so Microsoft doesn't redistribute a
+      # separate 4.0 pack for modern toolchains) -> MSB3644. Override the
+      # target at the command line to a version that's actually installed;
+      # 4.0-era code builds fine against it since 4.5+ is an in-place,
+      # backward-compatible upgrade. The source file itself is unchanged.
+      - name: Build release binary
+        run: >
+          msbuild "${{ env.SLN_PATH }}"
+          /p:Configuration=Release
+          /p:Platform="Any CPU"
+          /p:TargetFrameworkVersion=v4.7.2
+          /clp:ErrorsOnly
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "${{ env.PROJECT_DIR }}"/bin/Release/*.exe \
+             "out/${{ env.TOOL_NAME }}-windows-x86_64.exe"
+
+      - name: Checksum
+        shell: bash
+        run: |
+          cd out
+          sha256sum * > "${{ env.TOOL_NAME }}-windows-x86_64.sha256"
+          cat *.sha256
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: "out/${{ env.TOOL_NAME }}-windows-x86_64*"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.TOOL_NAME }}-windows-x86_64
+          path: out/*
+
+  release:
+    needs: build
+    if: ${{ success() && inputs.skip_release != true }}
+    runs-on: ubuntu-latest
+    # All tool workflows publish into the same "latest" release. Serialize
+    # so two tools building at the same time don't race on the same tag.
+    concurrency:
+      group: trustbin-latest-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Update release changelog
+        id: changelog
+        uses: ./.github/actions/log-release
+        with:
+          tool: ${{ env.TOOL_NAME }}
+          ref: ${{ inputs.ref }}
+          repo: ${{ env.UPSTREAM_REPO }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to the shared "latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "trustbin: latest verified builds"
+          make_latest: "true"
+          body_path: ${{ steps.changelog.outputs.body-path }}
+          files: |
+            dist/*

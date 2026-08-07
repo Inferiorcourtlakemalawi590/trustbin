@@ -1,0 +1,178 @@
+name: build-netcat
+
+# Compiles netcat from the pinned official source ref (see
+# tools/netcat/source.md) for Linux and Windows, and publishes the
+# binaries as a signed + attested GitHub Release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git tag/commit of diegocr/netcat to build"
+        required: true
+        default: "7c1219817a9ce483dfb646f0bbe33537240303eb"
+      skip_release:
+        description: "Skip this tool's own release publish - build-all sets this and publishes once at the end instead"
+        type: boolean
+        default: false
+  # Lets build-all.yml (or any other workflow) call this one directly.
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+        default: "7c1219817a9ce483dfb646f0bbe33537240303eb"
+      skip_release:
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+env:
+  UPSTREAM_REPO: diegocr/netcat
+  TOOL_NAME: netcat
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone upstream source at pinned ref
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ inputs.ref }}
+          path: src
+
+      - name: Record exact commit built
+        run: echo "UPSTREAM_COMMIT=$(git -C src rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      # Built without -DGAPING_SECURITY_HOLE on purpose: that macro enables
+      # the -e (remote command exec) flag, which upstream itself gates
+      # behind an opt-in build define because of how dangerous it is. It
+      # also breaks the Windows build (see build-windows below), since its
+      # doexec() implementation lives in a companion doexec.c this mirror
+      # doesn't ship. Core netcat functionality doesn't need it.
+      #
+      # -include fcntl.h works around a missing #include in netcat.c: the
+      # -o (log to file) code path uses O_WRONLY/O_CREAT/O_TRUNC without
+      # including the header that defines them.
+      #
+      # -Dres_init()=(0): netcat.c unconditionally #defines HAVE_BIND at
+      # the top of the file, which calls res_init() to reload the
+      # resolver's view of /etc/resolv.conf. Linking -lresolv doesn't
+      # reliably resolve this symbol on modern glibc (libresolv was
+      # folded into libc a while back), and it isn't needed anyway: glibc
+      # initializes the resolver lazily on its own, this call is just a
+      # forced refresh. Stubbed to a no-op.
+      #
+      # -DFreeConsole()=((void)0): the 'd' (detach from console) case in
+      # the arg-parsing switch calls the Win32-only FreeConsole() with no
+      # #ifdef WIN32 guard around it, so it has to resolve to something on
+      # every platform. Stubbing it to a no-op on Linux is correct: there's
+      # nothing to detach from console-wise outside Windows anyway.
+      #
+      # All of the above are compiler/linker flags, not source edits.
+      - name: Build (gcc)
+        working-directory: src
+        run: |
+          gcc -include fcntl.h -D'FreeConsole()=((void)0)' -D'res_init()=(0)' -o "${{ env.TOOL_NAME }}" netcat.c
+          mkdir -p ../out
+          cp "${{ env.TOOL_NAME }}" "../out/${{ env.TOOL_NAME }}-linux-x86_64"
+
+      - name: Checksum
+        run: |
+          cd out
+          sha256sum * > "${{ env.TOOL_NAME }}-linux-x86_64.sha256"
+          cat *.sha256
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: "out/${{ env.TOOL_NAME }}-linux-x86_64*"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.TOOL_NAME }}-linux-x86_64
+          path: out/*
+
+  build-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone upstream source at pinned ref
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ inputs.ref }}
+          path: src
+
+      - name: Install mingw-w64
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+
+      # No -DGAPING_SECURITY_HOLE here either, see the note on the Linux
+      # build above: on Windows it also fails to link, since doexec() is
+      # only declared here, not defined (its real implementation lives in
+      # a doexec.c that isn't part of this single-file mirror).
+      - name: Build (mingw)
+        working-directory: src
+        run: |
+          x86_64-w64-mingw32-gcc -o "${{ env.TOOL_NAME }}.exe" netcat.c -lws2_32
+          mkdir -p ../out
+          cp "${{ env.TOOL_NAME }}.exe" "../out/${{ env.TOOL_NAME }}-windows-x86_64.exe"
+
+      - name: Checksum
+        run: |
+          cd out
+          sha256sum * > "${{ env.TOOL_NAME }}-windows-x86_64.sha256"
+          cat *.sha256
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: "out/${{ env.TOOL_NAME }}-windows-x86_64*"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.TOOL_NAME }}-windows-x86_64
+          path: out/*
+
+  release:
+    needs: [build-linux, build-windows]
+    if: ${{ success() && inputs.skip_release != true }}
+    runs-on: ubuntu-latest
+    # All tool workflows publish into the same "latest" release. Serialize
+    # so two tools building at the same time don't race on the same tag.
+    concurrency:
+      group: trustbin-latest-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Update release changelog
+        id: changelog
+        uses: ./.github/actions/log-release
+        with:
+          tool: ${{ env.TOOL_NAME }}
+          ref: ${{ inputs.ref }}
+          repo: ${{ env.UPSTREAM_REPO }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to the shared "latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "trustbin: latest verified builds"
+          make_latest: "true"
+          body_path: ${{ steps.changelog.outputs.body-path }}
+          files: |
+            dist/*

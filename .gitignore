@@ -1,0 +1,7 @@
+out/
+dist/
+*.exe
+*.bin
+target/
+__pycache__/
+.claude/
